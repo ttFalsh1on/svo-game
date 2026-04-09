@@ -1,0 +1,2382 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Летающий поросёнок — без библиотек</title>
+  <style>
+    * { margin: 0; box-sizing: border-box; }
+    html, body { overflow: hidden; height: 100%; background: #0a0e14; font-family: system-ui, sans-serif; }
+    #game { display: block; width: 100vw; height: 100vh; cursor: none; }
+    #hud {
+      position: fixed; left: 16px; top: 16px; z-index: 10;
+      color: #e8eef5; text-shadow: 0 1px 3px #000;
+      font-size: 14px; line-height: 1.6; pointer-events: none;
+    }
+    #hint {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+      color: #8fa3b8; font-size: 13px; text-align: center; z-index: 10;
+      pointer-events: none; text-shadow: 0 1px 2px #000;
+    }
+    #overlay {
+      position: fixed; inset: 0; z-index: 20;
+      display: flex; align-items: center; justify-content: center;
+      background: #000;
+      cursor: pointer;
+    }
+    #overlay.hidden, #pauseOverlay.hidden { display: none; }
+    .hidden { display: none !important; }
+    #pauseOverlay {
+      position: fixed; inset: 0; z-index: 21;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(10, 14, 20, 0.88);
+      cursor: default;
+    }
+    #overlay .box {
+      text-align: center; color: #e8eef5; max-width: 420px; padding: 24px;
+    }
+    #overlay h1 { font-size: 22px; margin-bottom: 12px; font-weight: 600; }
+    #overlay p { color: #9ab; margin-bottom: 16px; line-height: 1.5; }
+    #overlay .cta { color: #7ec8ff; font-size: 16px; }
+    #overlay .start-actions {
+      display: flex; align-items: center; justify-content: center; flex-wrap: wrap;
+      flex-direction: column;
+      gap: 12px; margin-top: 14px;
+    }
+    #overlay .start-btn {
+      display: inline-block;
+      padding: 12px 22px;
+      background: #2a3f55; color: #e8eef5;
+      border: none; border-radius: 10px;
+      font-size: 15px; cursor: pointer; font-family: inherit;
+      user-select: none;
+    }
+    #overlay .start-btn:hover { background: #3a5570; }
+    #overlay .start-btn.secondary { background: #243444; }
+    #overlay .start-btn.secondary:hover { background: #2f4a5c; }
+    #overlay .pig-wrap {
+      width: 120px; height: 120px; margin: 0 auto 10px;
+      filter: drop-shadow(0 10px 18px rgba(0,0,0,0.35));
+    }
+    #overlay .pig-wrap svg { width: 100%; height: 100%; display: block; }
+    #overlay .story-screen p.cta { margin-top: 6px; }
+    #pauseOverlay .box { text-align: center; color: #e8eef5; max-width: 420px; padding: 24px; }
+    #pauseOverlay h1 { font-size: 22px; margin-bottom: 12px; font-weight: 600; }
+    #pauseOverlay p { color: #9ab; margin-bottom: 16px; line-height: 1.5; }
+    #pauseOverlay .btn {
+      display: inline-block; margin-top: 8px; padding: 10px 22px;
+      background: #2a3f55; color: #e8eef5; border: none; border-radius: 8px;
+      font-size: 15px; cursor: pointer; font-family: inherit;
+    }
+    #pauseOverlay .btn:hover { background: #3a5570; }
+    #pauseOverlay .btn.secondary { margin-left: 8px; background: #243444; }
+    #pauseOverlay .btn.secondary:hover { background: #2f4a5c; }
+    .pause-panel { min-width: 300px; max-width: 420px; }
+    .pause-panel.hidden { display: none !important; }
+    #pauseMain > div:last-of-type { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 8px; }
+    #pauseOverlay .settings-row {
+      margin: 16px 0; text-align: left; color: #c5d4e0;
+    }
+    #pauseOverlay #sensSlider {
+      width: 100%; margin-top: 8px; accent-color: #7ec8ff;
+    }
+    #pauseOverlay .settings-hint { font-size: 12px; color: #7a8fa3; margin-top: 6px; }
+    #pauseOverlay .crosshair-toggle {
+      display: flex; align-items: center; gap: 10px; cursor: pointer;
+      font-size: 15px; user-select: none;
+    }
+    #pauseOverlay .crosshair-toggle input {
+      width: 18px; height: 18px; cursor: pointer; accent-color: #7ec8ff; flex-shrink: 0;
+    }
+    #pauseOverlay .keybind-block { margin-top: 8px; }
+    #pauseOverlay .keybind-row {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px; margin: 8px 0; font-size: 14px; color: #c5d4e0;
+    }
+    #pauseOverlay .keybind-btn {
+      min-width: 110px; padding: 8px 12px; font-size: 13px;
+      background: #2a3f55; color: #e8eef5; border: none; border-radius: 6px;
+      cursor: pointer; font-family: inherit;
+    }
+    #pauseOverlay .keybind-btn:hover { background: #3a5570; }
+    #pauseOverlay .keybind-btn.waiting {
+      background: #4a3f60; box-shadow: 0 0 0 2px #7ec8ff;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="hud">
+    <div>Очки: <span id="score">0</span></div>
+    <div>Враги: <span id="enemies">0</span></div>
+    <div>Здоровье: <span id="hp">100</span></div>
+    <div>Высота (центр): <span id="alt">8</span> м</div>
+    <div>Ускорение: <span id="boostHud">Готово</span></div>
+    <div>Ульта: <span id="ultHud">Готово</span></div>
+  </div>
+  <div id="hint">Управление и ульта — в настройках (пауза). ЛКМ — выстрел · Esc — пауза</div>
+  <div id="pauseOverlay" class="hidden">
+    <div id="pauseMain" class="pause-panel box">
+      <h1>Пауза</h1>
+      <p>Esc — продолжить или вернуться из настроек</p>
+      <div>
+        <button type="button" class="btn" id="resumeBtn">Продолжить игру</button>
+        <button type="button" class="btn secondary" id="openSettingsBtn">Настройки</button>
+      </div>
+    </div>
+    <div id="pauseSettings" class="pause-panel box hidden">
+      <h1>Настройки</h1>
+      <div class="settings-row">
+        <label for="sensSlider">Чувствительность мыши: <strong id="sensVal">1</strong></label>
+        <input type="range" id="sensSlider" min="0.1" max="10" step="0.1" value="1" />
+        <p class="settings-hint">Диапазон: от 0,1 до 10 (1 — как по умолчанию)</p>
+      </div>
+      <div class="settings-row">
+        <label class="crosshair-toggle" for="crosshairToggle">
+          <input type="checkbox" id="crosshairToggle" />
+          Показывать прицел
+        </label>
+        <p class="settings-hint">Пули вылетают от поросёнка и летят в направлении центра экрана. Можно скрыть только отрисовку крестика.</p>
+      </div>
+      <div class="settings-row keybind-block">
+        <strong>Клавиши</strong>
+        <p class="settings-hint">Нажмите кнопку справа, затем новую клавишу. Esc — отмена назначения.</p>
+        <div class="keybind-row"><span>Вперёд</span><button type="button" class="keybind-btn" data-kb="forward">W</button></div>
+        <div class="keybind-row"><span>Назад</span><button type="button" class="keybind-btn" data-kb="back">S</button></div>
+        <div class="keybind-row"><span>Влево</span><button type="button" class="keybind-btn" data-kb="left">A</button></div>
+        <div class="keybind-row"><span>Вправо</span><button type="button" class="keybind-btn" data-kb="right">D</button></div>
+        <div class="keybind-row"><span>Вверх</span><button type="button" class="keybind-btn" data-kb="up">Пробел</button></div>
+        <div class="keybind-row"><span>Вниз</span><button type="button" class="keybind-btn" data-kb="down">Ctrl</button></div>
+        <div class="keybind-row"><span>Ускорение</span><button type="button" class="keybind-btn" data-kb="boost">Shift</button></div>
+        <div class="keybind-row"><span>Ульта</span><button type="button" class="keybind-btn" data-kb="ult">X</button></div>
+      </div>
+      <button type="button" class="btn" id="backFromSettings">Назад</button>
+    </div>
+  </div>
+  <div id="overlay">
+    <div class="box">
+      <div id="startScreen">
+        <div class="pig-wrap" aria-hidden="true">
+          <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Свинка">
+            <defs>
+              <linearGradient id="pigG" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#ff8fb8"/>
+                <stop offset="1" stop-color="#e86b9a"/>
+              </linearGradient>
+            </defs>
+            <ellipse cx="60" cy="72" rx="44" ry="38" fill="url(#pigG)" stroke="#d24f7f" stroke-width="3"/>
+            <ellipse cx="60" cy="42" rx="40" ry="34" fill="#ff8fb8" stroke="#e86b9a" stroke-width="3"/>
+            <ellipse cx="30" cy="36" rx="16" ry="11" fill="#ff8fb8" stroke="#e86b9a" stroke-width="3"/>
+            <ellipse cx="90" cy="36" rx="16" ry="11" fill="#ff8fb8" stroke="#e86b9a" stroke-width="3"/>
+            <ellipse cx="60" cy="70" rx="22" ry="18" fill="#ffd1df" opacity="0.96"/>
+            <path d="M52 79 C56 84, 64 84, 68 79" fill="none" stroke="#d24f7f" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="52" cy="73" r="3" fill="#d24f7f"/>
+            <circle cx="68" cy="73" r="3" fill="#d24f7f"/>
+            <circle cx="46" cy="54" r="6" fill="#0a0e14"/>
+            <circle cx="74" cy="54" r="6" fill="#0a0e14"/>
+            <circle cx="48" cy="52" r="2" fill="#ffffff" opacity="0.85"/>
+            <circle cx="76" cy="52" r="2" fill="#ffffff" opacity="0.85"/>
+            <path d="M50 61 C55 64, 65 64, 70 61" fill="none" stroke="#d24f7f" stroke-width="2" stroke-linecap="round"/>
+            <rect x="38" y="92" width="13" height="18" rx="6" fill="#ff8fb8" stroke="#e86b9a" stroke-width="3"/>
+            <rect x="69" y="92" width="13" height="18" rx="6" fill="#ff8fb8" stroke="#e86b9a" stroke-width="3"/>
+          </svg>
+        </div>
+        <h1>Летающий поросёнок</h1>
+        <p>Приключение уже близко. Выбери продолжить или открой настройки.</p>
+        <div class="start-actions">
+          <button type="button" class="start-btn" id="startContinueBtn">Продолжить</button>
+          <button type="button" class="start-btn secondary" id="startSettingsBtn">Настройки</button>
+        </div>
+      </div>
+
+      <div id="storyScreen" class="hidden story-screen">
+        <h1 id="overlayTitle">Летающий поросёнок</h1>
+        <p id="overlayMessage">Ты, маленькая свинка, ищущая приключения, но наткнулась на волшебный лес, где начали появляться другие свинки, которые захотели тебя атаковать и принести их Богу.</p>
+        <p class="cta" id="overlayCta">Нажми для старта</p>
+      </div>
+
+      <div id="victoryScreen" class="hidden story-screen">
+        <h1>Победа</h1>
+        <p id="victoryText" style="color:#e8eef5; font-size:16px; line-height:1.55; max-width: 520px;"></p>
+        <button type="button" class="start-btn secondary hidden" id="victoryContinueBtn">Продолжить</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+(function () {
+  'use strict';
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const hudScore = document.getElementById('score');
+  const hudEnemies = document.getElementById('enemies');
+  const hudHp = document.getElementById('hp');
+  const overlay = document.getElementById('overlay');
+  const pauseOverlay = document.getElementById('pauseOverlay');
+  const pauseMain = document.getElementById('pauseMain');
+  const pauseSettings = document.getElementById('pauseSettings');
+  const resumeBtn = document.getElementById('resumeBtn');
+  const openSettingsBtn = document.getElementById('openSettingsBtn');
+  const backFromSettings = document.getElementById('backFromSettings');
+  const sensSlider = document.getElementById('sensSlider');
+  const sensVal = document.getElementById('sensVal');
+  const crosshairToggle = document.getElementById('crosshairToggle');
+  const hudAlt = document.getElementById('alt');
+  const hudBoost = document.getElementById('boostHud');
+  const hudUlt = document.getElementById('ultHud');
+  const keybindButtons = document.querySelectorAll('.keybind-btn');
+
+  const startScreen = document.getElementById('startScreen');
+  const storyScreen = document.getElementById('storyScreen');
+  const startContinueBtn = document.getElementById('startContinueBtn');
+  const startSettingsBtn = document.getElementById('startSettingsBtn');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayMessage = document.getElementById('overlayMessage');
+  const overlayCta = document.getElementById('overlayCta');
+  const victoryScreen = document.getElementById('victoryScreen');
+  const victoryText = document.getElementById('victoryText');
+  const victoryContinueBtn = document.getElementById('victoryContinueBtn');
+
+  const FOV = 520;
+  const CAM_DIST = 12;
+  const CAM_HEIGHT = 4;
+  const CAM_MUZZLE = 1.35;
+
+  const GROUND_Y = 0;
+  const PLAYER_R = 0.72;
+  const MIN_PLAYER_Y = GROUND_Y + PLAYER_R;
+  const WORLD_HALF = 90;
+  const MIN_ENEMY_DIST = 2.45;
+  const ENEMY_DMG_RANGE = 3.1;
+  const MEDKIT_PICKUP_DIST = 2.35;
+  const MEDKIT_BOB_SPEED = 0.0028;
+  const MEDKIT_BOB_AMP = 0.38;
+  /** Случайная задержка до следующей попытки спавна, сек (размах ~полминуты). */
+  const MEDKIT_SPAWN_CD_MIN = 15;
+  const MEDKIT_SPAWN_CD_MAX = 45;
+  /** Минимум потерянного HP относительно 100, чтобы аптечка могла появиться. */
+  const MEDKIT_SPAWN_MIN_HP_LOST = 20;
+  const MEDKIT_MAX_ON_MAP = 3;
+  const MEDKIT_AFTER_DAMAGE_DELAY = 5;
+  /** После аптечки от урона — интервал до следующей попытки фонового спавна (размах 30 с). */
+  const MEDKIT_POST_DAMAGE_CD_MIN = 10;
+  const MEDKIT_POST_DAMAGE_CD_MAX = 40;
+
+  const ULT_COOLDOWN = 30;
+  const ULT_HIT_RADIUS = 2.85;
+  const ULT_ENEMY_DAMAGE = 12;
+
+  const BOOST_DURATION = 5;
+  const BOOST_COOLDOWN = 15;
+  const BOOST_MOVE_MULT = 2.45;
+  const BOOST_VERT_MULT = 1.65;
+
+  let W = 0, H = 0, CX = 0, CY = 0;
+
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+    CX = W / 2;
+    CY = H / 2;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const keys = {};
+  let mouseLeft = false;
+  let yaw = 0;
+  let pitch = 0;
+  const MOUSE_BASE = 0.0024;
+  let mouseSensitivity = 1;
+  try {
+    const raw = localStorage.getItem('pigMouseSens');
+    if (raw !== null) {
+      const s = parseFloat(raw);
+      if (!isNaN(s)) {
+        mouseSensitivity = Math.min(10, Math.max(0.1, s));
+      }
+    }
+  } catch (err) {}
+
+  let showCrosshair = true;
+  try {
+    const cr = localStorage.getItem('pigShowCrosshair');
+    if (cr !== null) {
+      showCrosshair = cr === '1' || cr === 'true';
+    }
+  } catch (err) {}
+
+  let escapePressLock = 0;
+
+  let px = 0, py = 8, pz = 0;
+  let vx = 0, vy = 0, vz = 0;
+  const moveSpeed = 30;
+  const vertSpeed = 15;
+  const friction = 0.88;
+  let boostActiveT = 0;
+  let boostCd = 0;
+  let ultCd = 0;
+  let keyBindingAction = null;
+
+  const DEFAULT_KEYBINDS = {
+    forward: 'KeyW',
+    back: 'KeyS',
+    left: 'KeyA',
+    right: 'KeyD',
+    up: 'Space',
+    down: 'ControlLeft',
+    boost: 'ShiftLeft',
+    ult: 'KeyX',
+  };
+  let keyBinds = {
+    forward: DEFAULT_KEYBINDS.forward,
+    back: DEFAULT_KEYBINDS.back,
+    left: DEFAULT_KEYBINDS.left,
+    right: DEFAULT_KEYBINDS.right,
+    up: DEFAULT_KEYBINDS.up,
+    down: DEFAULT_KEYBINDS.down,
+    boost: DEFAULT_KEYBINDS.boost,
+    ult: DEFAULT_KEYBINDS.ult,
+  };
+  try {
+    const kbRaw = localStorage.getItem('pigKeyBinds');
+    if (kbRaw) {
+      const o = JSON.parse(kbRaw);
+      if (o && typeof o === 'object') {
+        let ka;
+        for (ka in DEFAULT_KEYBINDS) {
+          if (Object.prototype.hasOwnProperty.call(o, ka) && typeof o[ka] === 'string') {
+            keyBinds[ka] = o[ka];
+          }
+        }
+      }
+    }
+  } catch (err) {}
+
+  let projectiles = [];
+  let enemies = [];
+  let medkits = [];
+  let medkitSpawnCd = 0;
+  let medkitDamageSpawnT = 0;
+  let trees = [];
+  let clouds = [];
+  let score = 0;
+  let hp = 100;
+  let shootCd = 0;
+  const shootRate = 0.11;
+  let spawnT = 0;
+  let gameOver = false;
+  let paused = false;
+
+  // Босс-состояния и финальная сцена
+  let boss = null;
+  let bossSpawned = false;
+  let bossProjectiles = [];
+  let victorySequenceActive = false;
+  let victoryT = 0;
+  let victoryTextT = 0;
+  let victoryTextDone = false;
+  let bossExplosionT = 0;
+  let eclipseT = 0; // начинается спустя 1 секунду после смерти босса
+  const VICTORY_TEXT = 'Ты победил Бога Аллаха. Молодец, так держать.';
+
+  // Портал появляется на 2500 очках и телепортирует на арену босса
+  const PORTAL_MIN_SCORE = 2500;
+  const PORTAL_W = 10;
+  const PORTAL_D = 6;
+  const PORTAL_X = WORLD_HALF - 6;
+  const PORTAL_Z = 0;
+  const PORTAL_Y = GROUND_Y + 0.02;
+  const PORTAL_TELEPORT_DIST = 3.1;
+
+  // Арена босса (свои границы и центр)
+  const ARENA_HALF = 48;
+  const ARENA_CENTER_X = 0;
+  const ARENA_CENTER_Z = 0;
+  const ARENA_SPAWN_X = 0;
+  const ARENA_SPAWN_Z = -22;
+  const ARENA_SPAWN_Y = 10;
+  let inBossArena = false;
+  let portalJustTeleportedT = 0;
+
+  function currentWorldHalf() {
+    return inBossArena ? ARENA_HALF : WORLD_HALF;
+  }
+
+  // Параметры босса
+  const BOSS_HP = 50; // именно столько "попаданий обычными пулями" нужно, чтобы убить
+  const BOSS_SCALE = 1.6;
+  const BOSS_HIT_R = 1.55; // радиус попадания пули по модели
+  const BOSS_STAGE2_AT_HP = 25; // переход на 2-ю стадию
+  const BOSS_BULLET_SPEED = 26;
+
+  function showPauseMainPanel() {
+    pauseMain.classList.remove('hidden');
+    pauseSettings.classList.add('hidden');
+  }
+
+  function showPauseSettingsPanel() {
+    pauseMain.classList.add('hidden');
+    pauseSettings.classList.remove('hidden');
+    syncSensUi();
+    syncKeybindButtons();
+  }
+
+  function showStartScreen() {
+    startScreen.classList.remove('hidden');
+    storyScreen.classList.add('hidden');
+  }
+
+  function showStoryScreen(title, message, cta) {
+    overlayTitle.textContent = title || '';
+    overlayMessage.textContent = message || '';
+    overlayCta.textContent = cta || '';
+    startScreen.classList.add('hidden');
+    storyScreen.classList.remove('hidden');
+    overlay.classList.remove('hidden');
+  }
+
+  function syncSensUi() {
+    sensSlider.value = String(mouseSensitivity);
+    sensVal.textContent = String(Math.round(mouseSensitivity * 10) / 10);
+    crosshairToggle.checked = showCrosshair;
+  }
+
+  function keyCodeToLabel(code) {
+    if (!code) return '—';
+    if (code === 'Space') return 'Пробел';
+    if (code === 'ControlLeft' || code === 'ControlRight') return 'Ctrl';
+    if (code === 'ShiftLeft' || code === 'ShiftRight') return 'Shift';
+    if (code === 'AltLeft' || code === 'AltRight') return 'Alt';
+    if (code.indexOf('Key') === 0) return code.slice(3);
+    if (code.indexOf('Digit') === 0) return code.slice(5);
+    return code;
+  }
+
+  function saveKeyBinds() {
+    try {
+      localStorage.setItem('pigKeyBinds', JSON.stringify(keyBinds));
+    } catch (err) {}
+  }
+
+  function syncKeybindButtons() {
+    keybindButtons.forEach(function (btn) {
+      const a = btn.getAttribute('data-kb');
+      if (a && keyBinds[a]) {
+        btn.textContent = keyCodeToLabel(keyBinds[a]);
+      }
+    });
+  }
+
+  function pauseGame() {
+    if (paused || gameOver) return;
+    if (!overlay.classList.contains('hidden')) return;
+    paused = true;
+    showPauseMainPanel();
+    pauseOverlay.classList.remove('hidden');
+    document.exitPointerLock();
+  }
+
+  function resumeGame() {
+    if (!paused) return;
+    paused = false;
+    pauseOverlay.classList.add('hidden');
+    showPauseMainPanel();
+    canvas.requestPointerLock();
+  }
+
+  function tryActivateBoost() {
+    if (!overlay.classList.contains('hidden')) return;
+    if (paused || gameOver) return;
+    if (document.pointerLockElement !== canvas) return;
+    if (boostActiveT > 0) return;
+    if (boostCd > 0) return;
+    boostActiveT = BOOST_DURATION;
+  }
+
+  function tryFireUlt() {
+    if (!overlay.classList.contains('hidden')) return;
+    if (paused || gameOver) return;
+    if (document.pointerLockElement !== canvas) return;
+    if (ultCd > 0) return;
+    const aim = aimCrosshairDir();
+    const sp = 46;
+    projectiles.push({
+      x: px + aim.x * CAM_MUZZLE,
+      y: py + aim.y * CAM_MUZZLE,
+      z: pz + aim.z * CAM_MUZZLE,
+      vx: aim.x * sp,
+      vy: aim.y * sp,
+      vz: aim.z * sp,
+      life: 5.5,
+      isUlt: true,
+      hitR: ULT_HIT_RADIUS,
+    });
+    ultCd = ULT_COOLDOWN;
+  }
+
+  function addScore(delta) {
+    score += delta;
+    hudScore.textContent = String(score);
+  }
+
+  function medkitWorldY(m) {
+    return m.y + Math.sin(performance.now() * MEDKIT_BOB_SPEED + m.phase) * MEDKIT_BOB_AMP;
+  }
+
+  function nextMedkitSpawnDelay() {
+    return MEDKIT_SPAWN_CD_MIN + Math.random() * (MEDKIT_SPAWN_CD_MAX - MEDKIT_SPAWN_CD_MIN);
+  }
+
+  function nextMedkitSpawnDelayAfterDamageHeal() {
+    return MEDKIT_POST_DAMAGE_CD_MIN + Math.random() * (MEDKIT_POST_DAMAGE_CD_MAX - MEDKIT_POST_DAMAGE_CD_MIN);
+  }
+
+  function spawnOneMedkit() {
+    let tries = 0;
+    while (tries++ < 40) {
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 2.5 + Math.random() * 17;
+      const x = Math.cos(ang) * dist;
+      const z = Math.sin(ang) * dist;
+      const y = 5 + Math.random() * 9;
+      let ok = true;
+      let ti;
+      for (ti = 0; ti < trees.length; ti++) {
+        const t = trees[ti];
+        if (Math.hypot(x - t.x, z - t.z) < t.r + 2.2) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      medkits.push({
+        x: x,
+        y: y,
+        z: z,
+        heal: 28 + Math.floor(Math.random() * 20),
+        phase: Math.random() * Math.PI * 2,
+      });
+      return;
+    }
+  }
+
+  function initWorld() {
+    trees.length = 0;
+    clouds.length = 0;
+    medkits.length = 0;
+    let i;
+    for (i = 0; i < 95; i++) {
+      const x = (Math.random() - 0.5) * (WORLD_HALF * 2 - 8);
+      const z = (Math.random() - 0.5) * (WORLD_HALF * 2 - 8);
+      if (Math.hypot(x, z) < 12) continue;
+      trees.push({
+        x: x,
+        z: z,
+        r: 1.1 + Math.random() * 0.45,
+        h: 5.5 + Math.random() * 4,
+      });
+    }
+    for (i = 0; i < 45; i++) {
+      clouds.push({
+        x: (Math.random() - 0.5) * 220,
+        y: 22 + Math.random() * 18,
+        z: (Math.random() - 0.5) * 220,
+        w: 5 + Math.random() * 10,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    medkitSpawnCd = nextMedkitSpawnDelay();
+  }
+
+  function pushPlayerFromTrees() {
+    trees.forEach(function (t) {
+      const dx = px - t.x;
+      const dz = pz - t.z;
+      const d = Math.hypot(dx, dz);
+      const need = t.r + PLAYER_R;
+      if (d >= need || py > t.h + PLAYER_R + 0.2) return;
+      if (d < 0.01) {
+        px += need;
+        return;
+      }
+      const nx = dx / d;
+      const nz = dz / d;
+      px = t.x + nx * need;
+      pz = t.z + nz * need;
+      const dot = vx * nx + vz * nz;
+      if (dot < 0) {
+        vx -= dot * nx;
+        vz -= dot * nz;
+      }
+    });
+  }
+
+  function cameraBasis() {
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
+    const cy = Math.cos(yaw);
+    const sy = Math.sin(yaw);
+    const f = { x: cp * cy, y: sp, z: cp * sy };
+    let rx = -f.z;
+    let ry = 0;
+    let rz = f.x;
+    let rlen = Math.hypot(rx, ry, rz);
+    if (rlen < 1e-8) {
+      rx = 1;
+      ry = 0;
+      rz = 0;
+      rlen = 1;
+    } else {
+      rx /= rlen;
+      ry /= rlen;
+      rz /= rlen;
+    }
+    const ux = ry * f.z - rz * f.y;
+    const uy = rz * f.x - rx * f.z;
+    const uz = rx * f.y - ry * f.x;
+    let ulen = Math.hypot(ux, uy, uz);
+    if (ulen < 1e-8) {
+      return { f, right: { x: rx, y: ry, z: rz }, up: { x: 0, y: 1, z: 0 } };
+    }
+    return {
+      f,
+      right: { x: rx, y: ry, z: rz },
+      up: { x: ux / ulen, y: uy / ulen, z: uz / ulen },
+    };
+  }
+
+  function forward() {
+    return cameraBasis().f;
+  }
+
+  /** Направление луча через центр экрана (прицел); совпадает с осью камеры. */
+  function aimCrosshairDir() {
+    return forward();
+  }
+
+  function rightVec() {
+    return cameraBasis().right;
+  }
+
+  function worldToCamera(wx, wy, wz, camX, camY, camZ) {
+    const dx = wx - camX;
+    const dy = wy - camY;
+    const dz = wz - camZ;
+    const b = cameraBasis();
+    return {
+      x: dx * b.right.x + dy * b.right.y + dz * b.right.z,
+      y: dx * b.up.x + dy * b.up.y + dz * b.up.z,
+      z: dx * b.f.x + dy * b.f.y + dz * b.f.z,
+    };
+  }
+
+  function project(wx, wy, wz, camX, camY, camZ) {
+    const v = worldToCamera(wx, wy, wz, camX, camY, camZ);
+    if (v.z <= 0.35) return null;
+    const s = FOV / v.z;
+    return {
+      sx: CX + v.x * s,
+      sy: CY - v.y * s,
+      scale: s,
+      z: v.z,
+    };
+  }
+
+  function camPos() {
+    const b = cameraBasis();
+    const f = b.f;
+    const u = b.up;
+    return {
+      x: px - f.x * CAM_DIST + u.x * CAM_HEIGHT,
+      y: py - f.y * CAM_DIST + u.y * CAM_HEIGHT,
+      z: pz - f.z * CAM_DIST + u.z * CAM_HEIGHT,
+    };
+  }
+
+  function drawGroundPlane(cam) {
+    const step = 10;
+    const wh = currentWorldHalf();
+    const g0 = -wh;
+    const g1 = wh;
+    let gx;
+    let gz;
+    for (gx = g0; gx < g1; gx += step) {
+      for (gz = g0; gz < g1; gz += step) {
+        const c1 = ((gx / step + gz / step) & 1) === 0;
+        const p00 = project(gx, GROUND_Y, gz, cam.x, cam.y, cam.z);
+        const p10 = project(gx + step, GROUND_Y, gz, cam.x, cam.y, cam.z);
+        const p11 = project(gx + step, GROUND_Y, gz + step, cam.x, cam.y, cam.z);
+        const p01 = project(gx, GROUND_Y, gz + step, cam.x, cam.y, cam.z);
+        if (!p00 || !p10 || !p11 || !p01) continue;
+        ctx.fillStyle = c1 ? '#2d5a32' : '#3a7040';
+        ctx.beginPath();
+        ctx.moveTo(p00.sx, p00.sy);
+        ctx.lineTo(p10.sx, p10.sy);
+        ctx.lineTo(p11.sx, p11.sy);
+        ctx.lineTo(p01.sx, p01.sy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(25, 45, 30, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = 'rgba(55, 75, 60, 0.5)';
+    ctx.lineWidth = 1.2;
+    for (gx = g0; gx <= g1; gx += step * 2) {
+      const a = project(gx, GROUND_Y, g0, cam.x, cam.y, cam.z);
+      const b = project(gx, GROUND_Y, g1, cam.x, cam.y, cam.z);
+      if (a && b) {
+        ctx.beginPath();
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
+        ctx.stroke();
+      }
+    }
+    for (gz = g0; gz <= g1; gz += step * 2) {
+      const a = project(g0, GROUND_Y, gz, cam.x, cam.y, cam.z);
+      const b = project(g1, GROUND_Y, gz, cam.x, cam.y, cam.z);
+      if (a && b) {
+        ctx.beginPath();
+        ctx.moveTo(a.sx, a.sy);
+        ctx.lineTo(b.sx, b.sy);
+        ctx.stroke();
+      }
+    }
+  }
+
+  function drawCloud(cam, c) {
+    const t = performance.now() * 0.0003;
+    const cx = c.x + Math.sin(t + c.phase) * 2;
+    const cz = c.z + Math.cos(t * 0.8 + c.phase) * 1.5;
+    const base = project(cx, c.y, cz, cam.x, cam.y, cam.z);
+    if (!base) return;
+    const s = base.scale;
+    const w = c.w * s;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.82)';
+    ctx.beginPath();
+    ctx.ellipse(base.sx, base.sy, w * 0.9, w * 0.42, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
+    ctx.beginPath();
+    ctx.ellipse(base.sx - w * 0.45, base.sy + w * 0.08, w * 0.55, w * 0.32, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(base.sx + w * 0.5, base.sy + w * 0.05, w * 0.5, w * 0.28, -0.15, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function drawTree(cam, tree) {
+    const b = project(tree.x, GROUND_Y, tree.z, cam.x, cam.y, cam.z);
+    const mid = project(tree.x, tree.h * 0.42, tree.z, cam.x, cam.y, cam.z);
+    const top = project(tree.x, tree.h, tree.z, cam.x, cam.y, cam.z);
+    if (!b || !top) return;
+    const wb = tree.r * b.scale * 2.1;
+    const wt = tree.r * top.scale * 1.1;
+    ctx.fillStyle = '#4a3220';
+    ctx.beginPath();
+    ctx.moveTo(b.sx - wb * 0.5, b.sy);
+    ctx.lineTo(b.sx + wb * 0.5, b.sy);
+    ctx.lineTo(mid.sx + wt * 0.5, mid.sy);
+    ctx.lineTo(mid.sx - wt * 0.5, mid.sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1e5a24';
+    ctx.beginPath();
+    ctx.arc(top.sx, top.sy, tree.r * top.scale * 2.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#2d7a36';
+    ctx.beginPath();
+    ctx.arc(top.sx - top.scale * 0.4, top.sy - top.scale * 0.35, tree.r * top.scale * 1.7, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function norm3(x, y, z) {
+    const l = Math.hypot(x, y, z) || 1;
+    return { x: x / l, y: y / l, z: z / l };
+  }
+
+  function pigBasisFromForward(fx, fy, fz) {
+    const f = norm3(fx, fy, fz);
+    let rx = -f.z;
+    let ry = 0;
+    let rz = f.x;
+    let rlen = Math.hypot(rx, ry, rz);
+    if (rlen < 1e-8) {
+      rx = 1;
+      ry = 0;
+      rz = 0;
+      rlen = 1;
+    } else {
+      rx /= rlen;
+      ry /= rlen;
+      rz /= rlen;
+    }
+    const ux = ry * f.z - rz * f.y;
+    const uy = rz * f.x - rx * f.z;
+    const uz = rx * f.y - ry * f.x;
+    const ulen = Math.hypot(ux, uy, uz) || 1;
+    return {
+      f: f,
+      right: { x: rx, y: ry, z: rz },
+      up: { x: ux / ulen, y: uy / ulen, z: uz / ulen },
+    };
+  }
+
+  function pigLocalToWorld(cx, cy, cz, b, lx, ly, lz) {
+    return {
+      x: cx + lx * b.f.x + ly * b.up.x + lz * b.right.x,
+      y: cy + lx * b.f.y + ly * b.up.y + lz * b.right.y,
+      z: cz + lx * b.f.z + ly * b.up.z + lz * b.right.z,
+    };
+  }
+
+  function cross3(ax, ay, az, bx, by, bz) {
+    return {
+      x: ay * bz - az * by,
+      y: az * bx - ax * bz,
+      z: ax * by - ay * bx,
+    };
+  }
+
+  function triNormal(ax, ay, az, bx, by, bz, cx, cy, cz) {
+    const ux = bx - ax;
+    const uy = by - ay;
+    const uz = bz - az;
+    const vx = cx - ax;
+    const vy = cy - ay;
+    const vz = cz - az;
+    return cross3(ux, uy, uz, vx, vy, vz);
+  }
+
+  function shadeColor(hex, shade) {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return (
+      'rgb(' +
+      Math.min(255, Math.round(r * shade)) +
+      ',' +
+      Math.min(255, Math.round(g * shade)) +
+      ',' +
+      Math.min(255, Math.round(b * shade)) +
+      ')'
+    );
+  }
+
+  function drawPig3D(cam, wx, wy, wz, colMain, colDark, ffx, ffy, ffz, scale) {
+    scale = typeof scale === 'number' ? scale : 1;
+    const b = pigBasisFromForward(ffx, ffy, ffz);
+    const LIGHT = norm3(0.4, 0.75, 0.35);
+    const tris = [];
+
+    function toW(lx, ly, lz) {
+      return pigLocalToWorld(wx, wy, wz, b, lx, ly, lz);
+    }
+
+    function pushTri(ax, ay, az, bx, by, bz, cx, cy, cz, hex) {
+      const n = triNormal(ax, ay, az, bx, by, bz, cx, cy, cz);
+      const nl = Math.hypot(n.x, n.y, n.z) || 1;
+      const nd = (n.x * LIGHT.x + n.y * LIGHT.y + n.z * LIGHT.z) / nl;
+      const shade = 0.28 + 0.72 * Math.max(0, nd);
+      const pa = project(ax, ay, az, cam.x, cam.y, cam.z);
+      const pb = project(bx, by, bz, cam.x, cam.y, cam.z);
+      const pc = project(cx, cy, cz, cam.x, cam.y, cam.z);
+      if (!pa || !pb || !pc) return;
+      const z = (pa.z + pb.z + pc.z) / 3;
+      tris.push({ pa: pa, pb: pb, pc: pc, z: z, col: shadeColor(hex, shade) });
+    }
+
+    function sphereMesh(ox, oy, oz, R, stacks, slices, hex) {
+      let si;
+      let ti;
+      for (si = 0; si < stacks; si++) {
+        const phi1 = (Math.PI * si) / stacks;
+        const phi2 = (Math.PI * (si + 1)) / stacks;
+        for (ti = 0; ti < slices; ti++) {
+          const th1 = (2 * Math.PI * ti) / slices;
+          const th2 = (2 * Math.PI * (ti + 1)) / slices;
+          const lx00 = R * Math.cos(phi1) * 0.92;
+          const ly00 = R * Math.sin(phi1) * Math.cos(th1) * 0.86;
+          const lz00 = R * Math.sin(phi1) * Math.sin(th1) * 0.86;
+          const lx10 = R * Math.cos(phi2) * 0.92;
+          const ly10 = R * Math.sin(phi2) * Math.cos(th1) * 0.86;
+          const lz10 = R * Math.sin(phi2) * Math.sin(th1) * 0.86;
+          const lx11 = R * Math.cos(phi2) * 0.92;
+          const ly11 = R * Math.sin(phi2) * Math.cos(th2) * 0.86;
+          const lz11 = R * Math.sin(phi2) * Math.sin(th2) * 0.86;
+          const lx01 = R * Math.cos(phi1) * 0.92;
+          const ly01 = R * Math.sin(phi1) * Math.cos(th2) * 0.86;
+          const lz01 = R * Math.sin(phi1) * Math.sin(th2) * 0.86;
+          const p00 = pigLocalToWorld(wx, wy, wz, b, ox + lx00, oy + ly00, oz + lz00);
+          const p10 = pigLocalToWorld(wx, wy, wz, b, ox + lx10, oy + ly10, oz + lz10);
+          const p11 = pigLocalToWorld(wx, wy, wz, b, ox + lx11, oy + ly11, oz + lz11);
+          const p01 = pigLocalToWorld(wx, wy, wz, b, ox + lx01, oy + ly01, oz + lz01);
+          pushTri(p00.x, p00.y, p00.z, p10.x, p10.y, p10.z, p11.x, p11.y, p11.z, hex);
+          pushTri(p00.x, p00.y, p00.z, p11.x, p11.y, p11.z, p01.x, p01.y, p01.z, hex);
+        }
+      }
+    }
+
+    sphereMesh(0, 0, 0, 0.56 * scale, 5, 6, colMain);
+    sphereMesh(0.48 * scale, -0.06 * scale, 0, 0.24 * scale, 3, 4, colDark);
+
+    const earL = toW(0.12 * scale, 0.38 * scale, 0.22 * scale);
+    const earL2 = toW(-0.05 * scale, 0.55 * scale, 0.18 * scale);
+    const earL3 = toW(0.2 * scale, 0.5 * scale, 0.12 * scale);
+    pushTri(earL.x, earL.y, earL.z, earL2.x, earL2.y, earL2.z, earL3.x, earL3.y, earL3.z, colDark);
+    const earR = toW(0.12 * scale, 0.38 * scale, -0.22 * scale);
+    const earR2 = toW(-0.05 * scale, 0.55 * scale, -0.18 * scale);
+    const earR3 = toW(0.2 * scale, 0.5 * scale, -0.12 * scale);
+    pushTri(earR.x, earR.y, earR.z, earR3.x, earR3.y, earR3.z, earR2.x, earR2.y, earR2.z, colDark);
+
+    const armP = 0.82 * scale;
+    const boomsP = [
+      [armP, armP],
+      [armP, -armP],
+      [-armP, armP],
+      [-armP, -armP],
+    ];
+    const spinP = performance.now() * 0.038;
+    boomsP.forEach(function (o, ii) {
+      const hub = toW(0.12 * scale, o[0] * 0.55, o[1] * 0.55);
+      const tip = toW(0.12 * scale, o[0], o[1]);
+      const dx = tip.x - hub.x;
+      const dy = tip.y - hub.y;
+      const dz = tip.z - hub.z;
+      const dl = Math.hypot(dx, dy, dz) || 1;
+      const bx = dx / dl;
+      const by = dy / dl;
+      const bz = dz / dl;
+      let p1x = -by;
+      let p1y = bx;
+      let p1z = 0;
+      let p1l = Math.hypot(p1x, p1y, p1z);
+      if (p1l < 1e-6) {
+        p1x = 0;
+        p1y = 0;
+        p1z = 1;
+        p1l = 1;
+      }
+      p1x /= p1l;
+      p1y /= p1l;
+      p1z /= p1l;
+      const p2x = by * p1z - bz * p1y;
+      const p2y = bz * p1x - bx * p1z;
+      const p2z = bx * p1y - by * p1x;
+      const L = 0.48 * scale;
+      const base = spinP * 50 + ii * 1.57079633;
+      let blade;
+      for (blade = 0; blade < 2; blade++) {
+        const a0 = base + blade * Math.PI;
+        const a1 = a0 + 0.52;
+        const a2 = a0 + Math.PI;
+        const a3 = a0 + Math.PI + 0.52;
+        function rim(a) {
+          const ca = Math.cos(a);
+          const sa = Math.sin(a);
+          return {
+            x: hub.x + (p1x * ca + p2x * sa) * L,
+            y: hub.y + (p1y * ca + p2y * sa) * L,
+            z: hub.z + (p1z * ca + p2z * sa) * L,
+          };
+        }
+        const q0 = rim(a0);
+        const q1 = rim(a1);
+        const q2 = rim(a2);
+        const q3 = rim(a3);
+        pushTri(hub.x, hub.y, hub.z, q0.x, q0.y, q0.z, q1.x, q1.y, q1.z, '#4a5a6a');
+        pushTri(hub.x, hub.y, hub.z, q1.x, q1.y, q1.z, q2.x, q2.y, q2.z, '#4a5a6a');
+        pushTri(hub.x, hub.y, hub.z, q2.x, q2.y, q2.z, q3.x, q3.y, q3.z, '#4a5a6a');
+        pushTri(hub.x, hub.y, hub.z, q3.x, q3.y, q3.z, q0.x, q0.y, q0.z, '#4a5a6a');
+      }
+    });
+
+    tris.sort(function (a, b) {
+      return b.z - a.z;
+    });
+    tris.forEach(function (t) {
+      ctx.fillStyle = t.col;
+      ctx.beginPath();
+      ctx.moveTo(t.pa.sx, t.pa.sy);
+      ctx.lineTo(t.pb.sx, t.pb.sy);
+      ctx.lineTo(t.pc.sx, t.pc.sy);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawBullet3D(cam, wx, wy, wz, ffx, ffy, ffz) {
+    const LIGHT = norm3(0.4, 0.75, 0.35);
+    const tris = [];
+    const fl = Math.hypot(ffx, ffy, ffz) || 1;
+    const b = pigBasisFromForward(ffx / fl, ffy / fl, ffz / fl);
+    function pushTri(ax, ay, az, bx, by, bz, cx, cy, cz, hex) {
+      const n = triNormal(ax, ay, az, bx, by, bz, cx, cy, cz);
+      const nl = Math.hypot(n.x, n.y, n.z) || 1;
+      const nd = (n.x * LIGHT.x + n.y * LIGHT.y + n.z * LIGHT.z) / nl;
+      const shade = 0.28 + 0.72 * Math.max(0, nd);
+      const pa = project(ax, ay, az, cam.x, cam.y, cam.z);
+      const pb = project(bx, by, bz, cam.x, cam.y, cam.z);
+      const pc = project(cx, cy, cz, cam.x, cam.y, cam.z);
+      if (!pa || !pb || !pc) return;
+      const z = (pa.z + pb.z + pc.z) / 3;
+      tris.push({ pa: pa, pb: pb, pc: pc, z: z, col: shadeColor(hex, shade) });
+    }
+    function sphereMesh(ox, oy, oz, R, stacks, slices, hex) {
+      let si;
+      let ti;
+      for (si = 0; si < stacks; si++) {
+        const phi1 = (Math.PI * si) / stacks;
+        const phi2 = (Math.PI * (si + 1)) / stacks;
+        for (ti = 0; ti < slices; ti++) {
+          const th1 = (2 * Math.PI * ti) / slices;
+          const th2 = (2 * Math.PI * (ti + 1)) / slices;
+          const lx00 = R * Math.cos(phi1) * 0.92;
+          const ly00 = R * Math.sin(phi1) * Math.cos(th1) * 0.86;
+          const lz00 = R * Math.sin(phi1) * Math.sin(th1) * 0.86;
+          const lx10 = R * Math.cos(phi2) * 0.92;
+          const ly10 = R * Math.sin(phi2) * Math.cos(th1) * 0.86;
+          const lz10 = R * Math.sin(phi2) * Math.sin(th1) * 0.86;
+          const lx11 = R * Math.cos(phi2) * 0.92;
+          const ly11 = R * Math.sin(phi2) * Math.cos(th2) * 0.86;
+          const lz11 = R * Math.sin(phi2) * Math.sin(th2) * 0.86;
+          const lx01 = R * Math.cos(phi1) * 0.92;
+          const ly01 = R * Math.sin(phi1) * Math.cos(th2) * 0.86;
+          const lz01 = R * Math.sin(phi1) * Math.sin(th2) * 0.86;
+          const p00 = pigLocalToWorld(wx, wy, wz, b, ox + lx00, oy + ly00, oz + lz00);
+          const p10 = pigLocalToWorld(wx, wy, wz, b, ox + lx10, oy + ly10, oz + lz10);
+          const p11 = pigLocalToWorld(wx, wy, wz, b, ox + lx11, oy + ly11, oz + lz11);
+          const p01 = pigLocalToWorld(wx, wy, wz, b, ox + lx01, oy + ly01, oz + lz01);
+          pushTri(p00.x, p00.y, p00.z, p10.x, p10.y, p10.z, p11.x, p11.y, p11.z, hex);
+          pushTri(p00.x, p00.y, p00.z, p11.x, p11.y, p11.z, p01.x, p01.y, p01.z, hex);
+        }
+      }
+    }
+    sphereMesh(0, 0, 0, 0.16, 3, 5, '#f4d03f');
+    tris.sort(function (a, b) { return b.z - a.z; });
+    tris.forEach(function (t) {
+      ctx.fillStyle = t.col;
+      ctx.beginPath();
+      ctx.moveTo(t.pa.sx, t.pa.sy);
+      ctx.lineTo(t.pb.sx, t.pb.sy);
+      ctx.lineTo(t.pc.sx, t.pc.sy);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawBossBullet3D(cam, wx, wy, wz, ffx, ffy, ffz) {
+    const LIGHT = norm3(0.4, 0.75, 0.35);
+    const tris = [];
+    const fl = Math.hypot(ffx, ffy, ffz) || 1;
+    const b = pigBasisFromForward(ffx / fl, ffy / fl, ffz / fl);
+
+    function pushTri(ax, ay, az, bx, by, bz, cx, cy, cz, hex) {
+      const n = triNormal(ax, ay, az, bx, by, bz, cx, cy, cz);
+      const nl = Math.hypot(n.x, n.y, n.z) || 1;
+      const nd = (n.x * LIGHT.x + n.y * LIGHT.y + n.z * LIGHT.z) / nl;
+      const shade = 0.28 + 0.72 * Math.max(0, nd);
+      const pa = project(ax, ay, az, cam.x, cam.y, cam.z);
+      const pb = project(bx, by, bz, cam.x, cam.y, cam.z);
+      const pc = project(cx, cy, cz, cam.x, cam.y, cam.z);
+      if (!pa || !pb || !pc) return;
+      const z = (pa.z + pb.z + pc.z) / 3;
+      tris.push({ pa: pa, pb: pb, pc: pc, z: z, col: shadeColor(hex, shade) });
+    }
+
+    function sphereMesh(ox, oy, oz, R, stacks, slices, hex) {
+      let si;
+      let ti;
+      for (si = 0; si < stacks; si++) {
+        const phi1 = (Math.PI * si) / stacks;
+        const phi2 = (Math.PI * (si + 1)) / stacks;
+        for (ti = 0; ti < slices; ti++) {
+          const th1 = (2 * Math.PI * ti) / slices;
+          const th2 = (2 * Math.PI * (ti + 1)) / slices;
+          const lx00 = R * Math.cos(phi1) * 0.92;
+          const ly00 = R * Math.sin(phi1) * Math.cos(th1) * 0.86;
+          const lz00 = R * Math.sin(phi1) * Math.sin(th1) * 0.86;
+          const lx10 = R * Math.cos(phi2) * 0.92;
+          const ly10 = R * Math.sin(phi2) * Math.cos(th1) * 0.86;
+          const lz10 = R * Math.sin(phi2) * Math.sin(th1) * 0.86;
+          const lx11 = R * Math.cos(phi2) * 0.92;
+          const ly11 = R * Math.sin(phi2) * Math.cos(th2) * 0.86;
+          const lz11 = R * Math.sin(phi2) * Math.sin(th2) * 0.86;
+          const lx01 = R * Math.cos(phi1) * 0.92;
+          const ly01 = R * Math.sin(phi1) * Math.cos(th2) * 0.86;
+          const lz01 = R * Math.sin(phi1) * Math.sin(th2) * 0.86;
+          const p00 = pigLocalToWorld(wx, wy, wz, b, ox + lx00, oy + ly00, oz + lz00);
+          const p10 = pigLocalToWorld(wx, wy, wz, b, ox + lx10, oy + ly10, oz + lz10);
+          const p11 = pigLocalToWorld(wx, wy, wz, b, ox + lx11, oy + ly11, oz + lz11);
+          const p01 = pigLocalToWorld(wx, wy, wz, b, ox + lx01, oy + ly01, oz + lz01);
+          pushTri(p00.x, p00.y, p00.z, p10.x, p10.y, p10.z, p11.x, p11.y, p11.z, hex);
+          pushTri(p00.x, p00.y, p00.z, p11.x, p11.y, p11.z, p01.x, p01.y, p01.z, hex);
+        }
+      }
+    }
+
+    sphereMesh(0, 0, 0, 0.14, 3, 5, '#a855f7');
+    tris.sort(function (a, b) { return b.z - a.z; });
+    tris.forEach(function (t) {
+      ctx.fillStyle = t.col;
+      ctx.beginPath();
+      ctx.moveTo(t.pa.sx, t.pa.sy);
+      ctx.lineTo(t.pb.sx, t.pb.sy);
+      ctx.lineTo(t.pc.sx, t.pc.sy);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawUltBullet3D(cam, wx, wy, wz, ffx, ffy, ffz) {
+    const LIGHT = norm3(0.35, 0.7, 0.4);
+    const tris = [];
+    const fl = Math.hypot(ffx, ffy, ffz) || 1;
+    const b = pigBasisFromForward(ffx / fl, ffy / fl, ffz / fl);
+    function pushTri(ax, ay, az, bx, by, bz, cx, cy, cz, hex) {
+      const n = triNormal(ax, ay, az, bx, by, bz, cx, cy, cz);
+      const nl = Math.hypot(n.x, n.y, n.z) || 1;
+      const nd = (n.x * LIGHT.x + n.y * LIGHT.y + n.z * LIGHT.z) / nl;
+      const shade = 0.28 + 0.72 * Math.max(0, nd);
+      const pa = project(ax, ay, az, cam.x, cam.y, cam.z);
+      const pb = project(bx, by, bz, cam.x, cam.y, cam.z);
+      const pc = project(cx, cy, cz, cam.x, cam.y, cam.z);
+      if (!pa || !pb || !pc) return;
+      const z = (pa.z + pb.z + pc.z) / 3;
+      tris.push({ pa: pa, pb: pb, pc: pc, z: z, col: shadeColor(hex, shade) });
+    }
+    function sphereMesh(ox, oy, oz, R, stacks, slices, hex) {
+      let si;
+      let ti;
+      for (si = 0; si < stacks; si++) {
+        const phi1 = (Math.PI * si) / stacks;
+        const phi2 = (Math.PI * (si + 1)) / stacks;
+        for (ti = 0; ti < slices; ti++) {
+          const th1 = (2 * Math.PI * ti) / slices;
+          const th2 = (2 * Math.PI * (ti + 1)) / slices;
+          const lx00 = R * Math.cos(phi1) * 0.92;
+          const ly00 = R * Math.sin(phi1) * Math.cos(th1) * 0.86;
+          const lz00 = R * Math.sin(phi1) * Math.sin(th1) * 0.86;
+          const lx10 = R * Math.cos(phi2) * 0.92;
+          const ly10 = R * Math.sin(phi2) * Math.cos(th1) * 0.86;
+          const lz10 = R * Math.sin(phi2) * Math.sin(th1) * 0.86;
+          const lx11 = R * Math.cos(phi2) * 0.92;
+          const ly11 = R * Math.sin(phi2) * Math.cos(th2) * 0.86;
+          const lz11 = R * Math.sin(phi2) * Math.sin(th2) * 0.86;
+          const lx01 = R * Math.cos(phi1) * 0.92;
+          const ly01 = R * Math.sin(phi1) * Math.cos(th2) * 0.86;
+          const lz01 = R * Math.sin(phi1) * Math.sin(th2) * 0.86;
+          const p00 = pigLocalToWorld(wx, wy, wz, b, ox + lx00, oy + ly00, oz + lz00);
+          const p10 = pigLocalToWorld(wx, wy, wz, b, ox + lx10, oy + ly10, oz + lz10);
+          const p11 = pigLocalToWorld(wx, wy, wz, b, ox + lx11, oy + ly11, oz + lz11);
+          const p01 = pigLocalToWorld(wx, wy, wz, b, ox + lx01, oy + ly01, oz + lz01);
+          pushTri(p00.x, p00.y, p00.z, p10.x, p10.y, p10.z, p11.x, p11.y, p11.z, hex);
+          pushTri(p00.x, p00.y, p00.z, p11.x, p11.y, p11.z, p01.x, p01.y, p01.z, hex);
+        }
+      }
+    }
+    sphereMesh(0, 0, 0, 0.55, 4, 7, '#9b59b6');
+    sphereMesh(0.35, 0, 0, 0.22, 3, 5, '#e8daef');
+    tris.sort(function (a, b) { return b.z - a.z; });
+    tris.forEach(function (t) {
+      ctx.fillStyle = t.col;
+      ctx.beginPath();
+      ctx.moveTo(t.pa.sx, t.pa.sy);
+      ctx.lineTo(t.pb.sx, t.pb.sy);
+      ctx.lineTo(t.pc.sx, t.pc.sy);
+      ctx.closePath();
+      ctx.fill();
+    });
+  }
+
+  function drawEnemyHpBar(cam, ex, ey, ez, curHp, maxHp, ffx, ffy, ffz, scale) {
+    scale = typeof scale === 'number' ? scale : 1;
+    const b = pigBasisFromForward(ffx, ffy, ffz);
+    const top = pigLocalToWorld(ex, ey, ez, b, 0.08 * scale, 0.88 * scale, 0);
+    const p = project(top.x, top.y, top.z, cam.x, cam.y, cam.z);
+    if (!p) return;
+    const rat = Math.max(0, Math.min(1, curHp / Math.max(1e-6, maxHp)));
+    const rcol = Math.round(255 - rat * 200);
+    const gcol = Math.round(30 + rat * 200);
+    const barW = Math.max(18, p.scale * 1.1 * scale);
+    const barH = Math.max(4, p.scale * 0.12 * scale);
+    const bx = p.sx - barW / 2;
+    const by = p.sy - barH - 12 * scale;
+    ctx.fillStyle = 'rgba(0,0,0,0.72)';
+    ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
+    ctx.fillStyle = 'rgba(40,40,40,0.9)';
+    ctx.fillRect(bx, by, barW, barH);
+    ctx.fillStyle = 'rgb(' + rcol + ',' + gcol + ',55)';
+    ctx.fillRect(bx, by, barW * rat, barH);
+    ctx.fillStyle = '#e8eef5';
+    ctx.font = 'bold ' + Math.max(10, Math.round(p.scale * 0.28 * scale)) + 'px system-ui,sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(String(curHp) + '/' + String(maxHp), p.sx, by - 2);
+  }
+
+  function drawCrosshair() {
+    const x = CX;
+    const y = CY;
+    const len = 16;
+    const gap = 5;
+    const dotR = 2;
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = 'rgba(0,0,0,0.88)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(x - len - gap, y);
+    ctx.lineTo(x - gap, y);
+    ctx.moveTo(x + gap, y);
+    ctx.lineTo(x + len + gap, y);
+    ctx.moveTo(x, y - len - gap);
+    ctx.lineTo(x, y - gap);
+    ctx.moveTo(x, y + gap);
+    ctx.lineTo(x, y + len + gap);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.96)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(x - len - gap, y);
+    ctx.lineTo(x - gap, y);
+    ctx.moveTo(x + gap, y);
+    ctx.lineTo(x + len + gap, y);
+    ctx.moveTo(x, y - len - gap);
+    ctx.lineTo(x, y - gap);
+    ctx.moveTo(x, y + gap);
+    ctx.lineTo(x, y + len + gap);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.beginPath();
+    ctx.arc(x, y, dotR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawPortal(cam) {
+    const hw = PORTAL_W / 2;
+    const hd = PORTAL_D / 2;
+    const y = PORTAL_Y;
+
+    const p00 = project(PORTAL_X - hw, y, PORTAL_Z - hd, cam.x, cam.y, cam.z);
+    const p10 = project(PORTAL_X + hw, y, PORTAL_Z - hd, cam.x, cam.y, cam.z);
+    const p11 = project(PORTAL_X + hw, y, PORTAL_Z + hd, cam.x, cam.y, cam.z);
+    const p01 = project(PORTAL_X - hw, y, PORTAL_Z + hd, cam.x, cam.y, cam.z);
+    if (!p00 || !p10 || !p11 || !p01) return;
+
+    const sc = p00.scale || 1;
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() * 0.006);
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.shadowColor = 'rgba(190,120,255,0.85)';
+    ctx.shadowBlur = Math.min(26, 16 * pulse);
+    ctx.fillStyle = 'rgba(140,60,255,' + (0.18 + 0.15 * pulse) + ')';
+    ctx.beginPath();
+    ctx.moveTo(p00.sx, p00.sy);
+    ctx.lineTo(p10.sx, p10.sy);
+    ctx.lineTo(p11.sx, p11.sy);
+    ctx.lineTo(p01.sx, p01.sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = 'rgba(230,180,255,' + (0.65 + 0.25 * pulse) + ')';
+    ctx.lineWidth = Math.max(2, sc * 2.2);
+    ctx.beginPath();
+    ctx.moveTo(p00.sx, p00.sy);
+    ctx.lineTo(p10.sx, p10.sy);
+    ctx.lineTo(p11.sx, p11.sy);
+    ctx.lineTo(p01.sx, p01.sy);
+    ctx.closePath();
+    ctx.stroke();
+
+    // Небольшие "лучи" внутри портала
+    ctx.strokeStyle = 'rgba(205,150,255,' + (0.18 + 0.18 * pulse) + ')';
+    ctx.lineWidth = Math.max(1.5, sc * 1.3);
+    ctx.beginPath();
+    ctx.moveTo(p00.sx, p00.sy);
+    ctx.lineTo(p11.sx, p11.sy);
+    ctx.moveTo(p10.sx, p10.sy);
+    ctx.lineTo(p01.sx, p01.sy);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawExplosionAtWorld(cam, wx, wy, wz, t, maxT) {
+    if (typeof maxT !== 'number') maxT = 1;
+    const p = project(wx, wy, wz, cam.x, cam.y, cam.z);
+    if (!p) return;
+    const rat = Math.max(0, Math.min(1, t / maxT));
+    const sc = p.scale || 1;
+    const r = (0.35 + rat * 3.6) * sc * 5.2;
+    const a = 1 - rat;
+
+    ctx.save();
+    ctx.globalAlpha = 0.95 * a;
+    ctx.strokeStyle = 'rgba(200,120,255,0.95)';
+    ctx.lineWidth = Math.max(2, sc * 2.4);
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.globalAlpha = 0.5 * a;
+    ctx.fillStyle = 'rgba(120,50,220,0.55)';
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, r * 0.45, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Вторая волна для объёма
+    ctx.globalAlpha = 0.6 * a;
+    ctx.strokeStyle = 'rgba(255,220,255,0.6)';
+    ctx.lineWidth = Math.max(1.5, sc * 1.2);
+    ctx.beginPath();
+    ctx.arc(p.sx, p.sy, r * 0.72, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawEclipseEffect() {
+    const dur = 3.0;
+    const t = Math.max(0, Math.min(1, eclipseT / dur));
+    const ease = t * t * (3 - 2 * t);
+    const alpha = 0.12 + 0.28 * ease;
+    const radius = (0.25 + 0.7 * ease) * Math.min(W, H);
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,' + alpha + ')';
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,' + Math.min(0.65, alpha + 0.18) + ')';
+    ctx.beginPath();
+    ctx.arc(CX, CY, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMedkit(cam, m) {
+    const wy = medkitWorldY(m);
+    const p = project(m.x, wy, m.z, cam.x, cam.y, cam.z);
+    if (!p) return;
+    const sc = p.scale;
+    const r = Math.max(10, sc * 0.5);
+    const hw = r * 0.85;
+    const hh = r * 1.05;
+    ctx.save();
+    ctx.translate(p.sx, p.sy);
+    ctx.fillStyle = 'rgba(255,250,250,0.98)';
+    ctx.strokeStyle = '#b71c1c';
+    ctx.lineWidth = Math.max(2.5, sc * 0.1);
+    ctx.beginPath();
+    ctx.rect(-hw, -hh, hw * 2, hh * 2);
+    ctx.fill();
+    ctx.stroke();
+    ctx.strokeStyle = '#e53935';
+    ctx.lineWidth = Math.max(3, sc * 0.14);
+    ctx.lineCap = 'square';
+    ctx.beginPath();
+    ctx.moveTo(-hw * 0.72, 0);
+    ctx.lineTo(hw * 0.72, 0);
+    ctx.moveTo(0, -hh * 0.72);
+    ctx.lineTo(0, hh * 0.72);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255, 215, 180, 0.35)';
+    ctx.beginPath();
+    ctx.arc(-hw * 0.35, -hh * 0.35, r * 0.15, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function render() {
+    ctx.clearRect(0, 0, W, H);
+    const cam = camPos();
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#6eb8e8');
+    g.addColorStop(0.35, '#a8d4ec');
+    g.addColorStop(0.72, '#c8e0e8');
+    g.addColorStop(1, '#2a4a38');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    const cloudList = clouds.map(function (c) {
+      const v = worldToCamera(c.x, c.y, c.z, cam.x, cam.y, cam.z);
+      return { c: c, z: v.z };
+    }).filter(function (x) { return x.z > 0.2; });
+    cloudList.sort(function (a, b) { return b.z - a.z; });
+    cloudList.forEach(function (x) {
+      drawCloud(cam, x.c);
+    });
+
+    drawGroundPlane(cam);
+    if (!inBossArena && score >= PORTAL_MIN_SCORE) {
+      drawPortal(cam);
+    }
+
+    const list = [];
+
+    trees.forEach(function (tree) {
+      const v = worldToCamera(tree.x, tree.h * 0.55, tree.z, cam.x, cam.y, cam.z);
+      list.push({ kind: 'tree', z: v.z, tree: tree });
+    });
+
+    medkits.forEach(function (m) {
+      const wy = medkitWorldY(m);
+      const v = worldToCamera(m.x, wy, m.z, cam.x, cam.y, cam.z);
+      if (v.z <= 0.12) return;
+      list.push({ kind: 'medkit', z: v.z, med: m });
+    });
+
+    enemies.forEach(function (e) {
+      const v = worldToCamera(e.x, e.y, e.z, cam.x, cam.y, cam.z);
+      if (v.z <= 0.15) return;
+      const fx = px - e.x;
+      const fy = py - e.y;
+      const fz = pz - e.z;
+      const fl = Math.hypot(fx, fy, fz);
+      let ffx;
+      let ffy;
+      let ffz;
+      if (fl < 0.08) {
+        ffx = 1;
+        ffy = 0;
+        ffz = 0;
+      } else {
+        ffx = fx / fl;
+        ffy = fy / fl;
+        ffz = fz / fl;
+      }
+      list.push({
+        kind: 'pigE',
+        z: v.z,
+        ex: e.x,
+        ey: e.y,
+        ez: e.z,
+        ffx: ffx,
+        ffy: ffy,
+        ffz: ffz,
+        ehp: e.hp,
+        emax: e.maxHp,
+      });
+    });
+
+    if (boss && boss.hp > 0) {
+      const vb = worldToCamera(boss.x, boss.y, boss.z, cam.x, cam.y, cam.z);
+      if (vb.z > 0.15) {
+        const fx = px - boss.x;
+        const fy = py - boss.y;
+        const fz = pz - boss.z;
+        const fl = Math.hypot(fx, fy, fz);
+        let ffx;
+        let ffy;
+        let ffz;
+        if (fl < 0.08) {
+          ffx = 1;
+          ffy = 0;
+          ffz = 0;
+        } else {
+          ffx = fx / fl;
+          ffy = fy / fl;
+          ffz = fz / fl;
+        }
+        list.push({
+          kind: 'boss',
+          z: vb.z,
+          bx: boss.x,
+          by: boss.y,
+          bz: boss.z,
+          ehp: boss.hp,
+          emax: boss.maxHp,
+          ffx: ffx,
+          ffy: ffy,
+          ffz: ffz,
+          fxActive: !!boss.fxActive,
+          fxT: boss.fxT,
+        });
+      }
+    }
+
+    projectiles.forEach(function (b) {
+      const v = worldToCamera(b.x, b.y, b.z, cam.x, cam.y, cam.z);
+      const vl = Math.hypot(b.vx, b.vy, b.vz) || 1;
+      list.push({
+        kind: 'bullet',
+        z: v.z,
+        bx: b.x,
+        by: b.y,
+        bz: b.z,
+        vx: b.vx / vl,
+        vy: b.vy / vl,
+        vz: b.vz / vl,
+        isUlt: !!b.isUlt,
+      });
+    });
+
+    bossProjectiles.forEach(function (b) {
+      const v = worldToCamera(b.x, b.y, b.z, cam.x, cam.y, cam.z);
+      if (!v || v.z <= 0.15) return;
+      const vl = Math.hypot(b.vx, b.vy, b.vz) || 1;
+      list.push({
+        kind: 'bossBullet',
+        z: v.z,
+        bx: b.x,
+        by: b.y,
+        bz: b.z,
+        vx: b.vx / vl,
+        vy: b.vy / vl,
+        vz: b.vz / vl,
+      });
+    });
+
+    const vP = worldToCamera(px, py, pz, cam.x, cam.y, cam.z);
+    const ff = forward();
+    list.push({
+      kind: 'pigP',
+      z: vP.z,
+      px: px,
+      py: py,
+      pz: pz,
+      ffx: ff.x,
+      ffy: ff.y,
+      ffz: ff.z,
+    });
+
+    list.sort(function (a, b) { return b.z - a.z; });
+
+    list.forEach(function (item) {
+      if (item.kind === 'tree') drawTree(cam, item.tree);
+      else if (item.kind === 'medkit') drawMedkit(cam, item.med);
+      else if (item.kind === 'pigE') {
+        drawPig3D(cam, item.ex, item.ey, item.ez, '#4a9eff', '#2d6fcc', item.ffx, item.ffy, item.ffz);
+        drawEnemyHpBar(cam, item.ex, item.ey, item.ez, item.ehp, item.emax, item.ffx, item.ffy, item.ffz);
+      } else if (item.kind === 'pigP') {
+        drawPig3D(cam, item.px, item.py, item.pz, '#ff8fb8', '#e86b9a', item.ffx, item.ffy, item.ffz);
+      }
+      else if (item.kind === 'boss') {
+        drawPig3D(cam, item.bx, item.by, item.bz, '#6fe66f', '#2a8a2a', item.ffx, item.ffy, item.ffz, BOSS_SCALE);
+        drawEnemyHpBar(cam, item.bx, item.by, item.bz, item.ehp, item.emax, item.ffx, item.ffy, item.ffz, BOSS_SCALE);
+      }
+      else if (item.kind === 'bullet') {
+        if (item.isUlt) {
+          drawUltBullet3D(cam, item.bx, item.by, item.bz, item.vx, item.vy, item.vz);
+        } else {
+          drawBullet3D(cam, item.bx, item.by, item.bz, item.vx, item.vy, item.vz);
+        }
+      }
+      else if (item.kind === 'bossBullet') {
+        drawBossBullet3D(cam, item.bx, item.by, item.bz, item.vx, item.vy, item.vz);
+      }
+    });
+
+    if (boss && boss.fxActive) {
+      drawExplosionAtWorld(cam, boss.x, boss.y, boss.z, boss.fxT, 0.9);
+    }
+
+    if (victorySequenceActive && boss) {
+      // Взрыв в момент смерти
+      if (bossExplosionT <= 1.2) {
+        drawExplosionAtWorld(cam, boss.x, boss.y, boss.z, bossExplosionT, 1.2);
+      }
+      // Затмение после смерти
+      if (eclipseT >= 0 && eclipseT <= 3.0) {
+        drawEclipseEffect();
+      }
+    }
+
+    if (showCrosshair && overlay.classList.contains('hidden') && !paused) {
+      drawCrosshair();
+    }
+  }
+
+  function spawnEnemy() {
+    let ang;
+    let dist;
+    let ex;
+    let ey;
+    let ez;
+    let ok = false;
+    let tries = 0;
+    while (!ok && tries++ < 28) {
+      ang = Math.random() * Math.PI * 2;
+      dist = 38 + Math.random() * 22;
+      ex = Math.cos(ang) * dist;
+      ez = Math.sin(ang) * dist;
+      ey = 6 + Math.random() * 10;
+      ok = true;
+      let ti;
+      for (ti = 0; ti < trees.length; ti++) {
+        const t = trees[ti];
+        if (Math.hypot(ex - t.x, ez - t.z) < t.r + 2.5) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    if (!ok) {
+      ex = 45;
+      ey = 12;
+      ez = 0;
+    }
+    enemies.push({
+      x: ex,
+      y: ey,
+      z: ez,
+      hp: 3,
+      maxHp: 3,
+      speed: 4.5 + Math.random() * 3.6,
+    });
+    hudEnemies.textContent = String(enemies.length);
+  }
+
+  function shoot() {
+    const aim = aimCrosshairDir();
+    const sp = 58;
+    projectiles.push({
+      x: px + aim.x * CAM_MUZZLE,
+      y: py + aim.y * CAM_MUZZLE,
+      z: pz + aim.z * CAM_MUZZLE,
+      vx: aim.x * sp,
+      vy: aim.y * sp,
+      vz: aim.z * sp,
+      life: 2.4,
+    });
+  }
+
+  function spawnBoss() {
+    bossSpawned = true;
+    bossProjectiles.length = 0;
+    bossExplosionT = 0;
+    eclipseT = -1;
+    boss = {
+      x: ARENA_CENTER_X,
+      y: 12,
+      z: ARENA_CENTER_Z,
+      hp: BOSS_HP,
+      maxHp: BOSS_HP,
+      stage: 1,
+      speed1: 11.5,
+      speed2: 7.5,
+      meleeCd: 0.6,
+      suicideCd: 2.2,
+      shootCd: 0,
+      fxActive: false,
+      fxT: 0,
+      fxPhase: Math.random() * Math.PI * 2,
+      phase: Math.random() * Math.PI * 2,
+    };
+    spawnT = 999999; // не спавнить обычных врагов, пока жив босс
+  }
+
+  function initBossArenaWorld() {
+    trees.length = 0;
+    clouds.length = 0;
+    medkits.length = 0;
+    medkitSpawnCd = 999999;
+  }
+
+  function teleportToBossArena() {
+    inBossArena = true;
+    portalJustTeleportedT = 0.8;
+
+    enemies.length = 0;
+    hudEnemies.textContent = '0';
+    projectiles.length = 0;
+    bossProjectiles.length = 0;
+    initBossArenaWorld();
+
+    px = ARENA_SPAWN_X;
+    py = ARENA_SPAWN_Y;
+    pz = ARENA_SPAWN_Z;
+    vx = vy = vz = 0;
+    yaw = 0;
+    pitch = 0;
+
+    if (!bossSpawned && !gameOver && !victorySequenceActive) {
+      spawnBoss();
+    }
+  }
+
+  function shootBossBullet(nx, ny, nz) {
+    const sp = BOSS_BULLET_SPEED;
+    bossProjectiles.push({
+      x: boss.x + nx * 1.05,
+      y: boss.y + ny * 1.05,
+      z: boss.z + nz * 1.05,
+      vx: nx * sp,
+      vy: ny * sp,
+      vz: nz * sp,
+      life: 4.2,
+    });
+  }
+
+  function triggerVictory() {
+    if (victorySequenceActive) return;
+    victorySequenceActive = true;
+    victoryT = 0;
+    victoryTextT = 0;
+    victoryTextDone = false;
+    bossExplosionT = 0;
+    eclipseT = -1;
+
+    pauseOverlay.classList.add('hidden');
+    paused = true;
+    document.exitPointerLock();
+
+    startScreen.classList.add('hidden');
+    storyScreen.classList.add('hidden');
+    victoryScreen.classList.remove('hidden');
+    victoryText.textContent = '';
+    victoryContinueBtn.classList.add('hidden');
+    overlay.classList.remove('hidden');
+
+    // Убираем активные снаряды босса, чтобы сцена не усложнялась во время победы
+    bossProjectiles.length = 0;
+  }
+
+  function updateVictorySequence(dt) {
+    victoryT += dt;
+    bossExplosionT += dt;
+
+    if (eclipseT < 0 && victoryT >= 1) eclipseT = 0;
+    if (eclipseT >= 0) eclipseT += dt;
+
+    const CHAR_EVERY = 0.055; // скорость печати
+    victoryTextT += dt;
+    const maxChars = VICTORY_TEXT.length;
+    const chars = Math.max(0, Math.min(maxChars, Math.floor(victoryTextT / CHAR_EVERY)));
+    victoryText.textContent = VICTORY_TEXT.slice(0, chars);
+
+    if (!victoryTextDone && chars >= maxChars) {
+      victoryTextDone = true;
+      victoryContinueBtn.classList.remove('hidden');
+    }
+  }
+
+  function resetToMainMenu() {
+    victorySequenceActive = false;
+    paused = false;
+    gameOver = false;
+    inBossArena = false;
+    portalJustTeleportedT = 0;
+    bossSpawned = false;
+    boss = null;
+    bossProjectiles.length = 0;
+    victoryT = 0;
+    victoryTextT = 0;
+    victoryTextDone = false;
+    bossExplosionT = 0;
+    eclipseT = 0;
+
+    hp = 100;
+    hudHp.textContent = '100';
+    score = 0;
+    hudScore.textContent = '0';
+    hudEnemies.textContent = '0';
+    enemies.length = 0;
+    medkits.length = 0;
+    projectiles.length = 0;
+    initWorld();
+
+    px = 0; py = 8; pz = 0;
+    vx = vy = vz = 0;
+    yaw = 0; pitch = 0;
+    spawnT = 0;
+    boostActiveT = 0;
+    boostCd = 0;
+    ultCd = 0;
+    medkitDamageSpawnT = 0;
+    hudAlt.textContent = '8';
+    hudBoost.textContent = 'готово (' + keyCodeToLabel(keyBinds.boost) + ')';
+    hudUlt.textContent = 'готово (' + keyCodeToLabel(keyBinds.ult) + ')';
+
+    victoryScreen.classList.add('hidden');
+    storyScreen.classList.add('hidden');
+    showStartScreen();
+    overlay.classList.remove('hidden');
+    pauseOverlay.classList.add('hidden');
+    document.exitPointerLock();
+  }
+
+  function updateBoss(dt) {
+    if (!boss || boss.hp <= 0) return;
+    if (victorySequenceActive) return;
+
+    const dx = px - boss.x;
+    const dy = py - boss.y;
+    const dz = pz - boss.z;
+    const d = Math.hypot(dx, dy, dz) || 1;
+    const nx = dx / d;
+    const ny = dy / d;
+    const nz = dz / d;
+
+    boss.meleeCd = Math.max(0, boss.meleeCd - dt);
+    boss.suicideCd = Math.max(0, boss.suicideCd - dt);
+    boss.shootCd = Math.max(0, boss.shootCd - dt);
+
+    if (boss.stage === 1 && boss.hp <= BOSS_STAGE2_AT_HP) {
+      boss.stage = 2;
+      boss.shootCd = 0; // сразу начнёт стрелять
+    }
+
+    if (boss.stage === 1) {
+      // Камэкадзе-стиль: он старается быть близко к тебе
+      boss.x += nx * boss.speed1 * dt;
+      boss.y += ny * boss.speed1 * dt * 0.35;
+      boss.z += nz * boss.speed1 * dt;
+      const bd = currentWorldHalf();
+      boss.x = Math.max(-bd, Math.min(bd, boss.x));
+      boss.z = Math.max(-bd, Math.min(bd, boss.z));
+      boss.y = Math.max(MIN_PLAYER_Y, Math.min(45, boss.y));
+
+      if (d < 1.35 && boss.meleeCd <= 0) {
+        boss.meleeCd = 1.2;
+        hp = Math.max(0, hp - 8);
+        hudHp.textContent = String(Math.round(hp));
+      }
+
+      // Попытка "убить себя рядом": взрыв рядом с тобой (визуально), но урон получаешь ты
+      if (d < 2.1 && boss.suicideCd <= 0) {
+        boss.suicideCd = 3.4;
+        boss.fxActive = true;
+        boss.fxT = 0;
+
+        hp = Math.max(0, hp - 10);
+        hudHp.textContent = String(Math.round(hp));
+      }
+    } else {
+      // 2-я стадия: он стреляет, стараясь держаться на дистанции
+      const targetD = 12;
+      const dir = d > targetD ? 1 : -0.6;
+      boss.x += nx * boss.speed2 * dt * dir;
+      boss.y += ny * boss.speed2 * dt * 0.35;
+      boss.z += nz * boss.speed2 * dt * dir;
+      const bd = currentWorldHalf();
+      boss.x = Math.max(-bd, Math.min(bd, boss.x));
+      boss.z = Math.max(-bd, Math.min(bd, boss.z));
+      boss.y = Math.max(MIN_PLAYER_Y, Math.min(45, boss.y));
+
+      if (d < 1.15 && boss.meleeCd <= 0) {
+        boss.meleeCd = 2.0;
+        hp = Math.max(0, hp - 5);
+        hudHp.textContent = String(Math.round(hp));
+      }
+
+      if (boss.shootCd <= 0) {
+        shootBossBullet(nx, ny, nz);
+        boss.shootCd = 0.85;
+      }
+    }
+
+    if (boss.fxActive) {
+      boss.fxT += dt;
+      if (boss.fxT > 0.9) {
+        boss.fxActive = false;
+      }
+    }
+
+    // Обновление снарядов босса
+    for (let i = bossProjectiles.length - 1; i >= 0; i--) {
+      const b = bossProjectiles[i];
+      b.life -= dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
+
+      if (b.life <= 0) {
+        bossProjectiles.splice(i, 1);
+        continue;
+      }
+      if (b.y < GROUND_Y + 0.2) {
+        bossProjectiles.splice(i, 1);
+        continue;
+      }
+
+      // Столкновение с деревьями
+      let hitTree = false;
+      for (let ti = 0; ti < trees.length; ti++) {
+        const t = trees[ti];
+        const dxT = b.x - t.x;
+        const dzT = b.z - t.z;
+        if (Math.hypot(dxT, dzT) < t.r + 0.25 && b.y < t.h + 0.2) {
+          hitTree = true;
+          break;
+        }
+      }
+      if (hitTree) {
+        bossProjectiles.splice(i, 1);
+        continue;
+      }
+
+      // Попадание в игрока
+      const dP = Math.hypot(b.x - px, b.y - py, b.z - pz);
+      if (dP < 1.05) {
+        bossProjectiles.splice(i, 1);
+        hp = Math.max(0, hp - 6);
+        hudHp.textContent = String(Math.round(hp));
+        continue;
+      }
+    }
+  }
+
+  let last = performance.now();
+  function tick(now) {
+    requestAnimationFrame(tick);
+    const dt = Math.min((now - last) / 1000, 0.06);
+    last = now;
+
+    if (!overlay.classList.contains('hidden') && !victorySequenceActive) {
+      render();
+      return;
+    }
+    if (paused && !victorySequenceActive) {
+      render();
+      return;
+    }
+
+    if (victorySequenceActive) {
+      updateVictorySequence(dt);
+      render();
+      return;
+    }
+
+    if (portalJustTeleportedT > 0) {
+      portalJustTeleportedT -= dt;
+      if (portalJustTeleportedT < 0) portalJustTeleportedT = 0;
+    }
+
+    shootCd -= dt;
+    if (ultCd > 0) {
+      ultCd -= dt;
+      if (ultCd < 0) ultCd = 0;
+    }
+
+    if (boostActiveT > 0) {
+      boostActiveT -= dt;
+      if (boostActiveT <= 0) {
+        boostActiveT = 0;
+        boostCd = BOOST_COOLDOWN;
+      }
+    } else if (boostCd > 0) {
+      boostCd -= dt;
+    }
+
+    let spd = moveSpeed;
+    let vspd = vertSpeed;
+    if (boostActiveT > 0) {
+      spd *= BOOST_MOVE_MULT;
+      vspd *= BOOST_VERT_MULT;
+    }
+
+    const f = forward();
+    const r = rightVec();
+    let ax = 0, az = 0;
+    if (keys[keyBinds.forward]) { ax += f.x; az += f.z; }
+    if (keys[keyBinds.back]) { ax -= f.x; az -= f.z; }
+    if (keys[keyBinds.left]) { ax -= r.x; az -= r.z; }
+    if (keys[keyBinds.right]) { ax += r.x; az += r.z; }
+    const len = Math.hypot(ax, az);
+    if (len > 0.001) {
+      ax = (ax / len) * spd;
+      az = (az / len) * spd;
+    }
+    vx += (ax - vx) * (1 - friction) * dt * 10;
+    vz += (az - vz) * (1 - friction) * dt * 10;
+    if (keys[keyBinds.up]) vy += vspd * dt;
+    if (keys[keyBinds.down]) vy -= vspd * dt;
+    vy *= Math.pow(0.9, dt * 60);
+    vx *= Math.pow(friction, dt * 60);
+    vz *= Math.pow(friction, dt * 60);
+
+    px += vx * dt;
+    py += vy * dt;
+    pz += vz * dt;
+    const bd = currentWorldHalf();
+    px = Math.max(-bd, Math.min(bd, px));
+    pz = Math.max(-bd, Math.min(bd, pz));
+    pushPlayerFromTrees();
+    pushPlayerFromTrees();
+    px = Math.max(-bd, Math.min(bd, px));
+    pz = Math.max(-bd, Math.min(bd, pz));
+    py = Math.max(MIN_PLAYER_Y, Math.min(52, py));
+    if (py <= MIN_PLAYER_Y + 0.05) {
+      vy = Math.max(0, vy);
+    }
+    hudAlt.textContent = String(Math.max(0, Math.round((py - GROUND_Y) * 10) / 10));
+
+    if (boostActiveT > 0) {
+      hudBoost.textContent = 'активно ' + Math.max(0, boostActiveT).toFixed(1) + ' с';
+    } else if (boostCd > 0) {
+      hudBoost.textContent = 'кулдаун ' + Math.ceil(boostCd) + ' с';
+    } else {
+      hudBoost.textContent = 'готово (' + keyCodeToLabel(keyBinds.boost) + ')';
+    }
+
+    if (ultCd > 0) {
+      hudUlt.textContent = 'кулдаун ' + Math.ceil(ultCd) + ' с';
+    } else {
+      hudUlt.textContent = 'готово (' + keyCodeToLabel(keyBinds.ult) + ')';
+    }
+
+    if (medkitDamageSpawnT > 0) {
+      medkitDamageSpawnT -= dt;
+      if (medkitDamageSpawnT <= 0) {
+        medkitDamageSpawnT = 0;
+        if (medkits.length < MEDKIT_MAX_ON_MAP) {
+          spawnOneMedkit();
+        }
+        medkitSpawnCd = nextMedkitSpawnDelayAfterDamageHeal();
+      }
+    }
+
+    medkitSpawnCd -= dt;
+    if (medkitSpawnCd <= 0) {
+      medkitSpawnCd = nextMedkitSpawnDelay();
+      const hpLost = 100 - hp;
+      if (hpLost >= MEDKIT_SPAWN_MIN_HP_LOST && medkits.length < MEDKIT_MAX_ON_MAP) {
+        spawnOneMedkit();
+      }
+    }
+
+    for (let mi = medkits.length - 1; mi >= 0; mi--) {
+      const kit = medkits[mi];
+      const wy = medkitWorldY(kit);
+      const dPick = Math.hypot(px - kit.x, py - wy, pz - kit.z);
+      if (dPick < MEDKIT_PICKUP_DIST) {
+        hp = Math.min(100, hp + kit.heal);
+        hudHp.textContent = String(Math.round(hp));
+        medkits.splice(mi, 1);
+      }
+    }
+
+    // Портал: появляется на 2500 и телепортирует на арену босса при приближении
+    if (!inBossArena && !bossSpawned && score >= PORTAL_MIN_SCORE && !gameOver && !victorySequenceActive && portalJustTeleportedT <= 0) {
+      const dPortal = Math.hypot(px - PORTAL_X, pz - PORTAL_Z);
+      if (dPortal < PORTAL_TELEPORT_DIST) {
+        teleportToBossArena();
+      }
+    }
+
+    if (bossSpawned && boss && !gameOver && !victorySequenceActive) {
+      updateBoss(dt);
+    }
+
+    if (mouseLeft && shootCd <= 0 && document.pointerLockElement === canvas) {
+      shoot();
+      shootCd = shootRate;
+    }
+
+    for (let i = projectiles.length - 1; i >= 0; i--) {
+      const b = projectiles[i];
+      b.life -= dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
+      if (b.life <= 0) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+      if (b.y < GROUND_Y + 0.2) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+      let hitTree = false;
+      let ti;
+      for (ti = 0; ti < trees.length; ti++) {
+        const t = trees[ti];
+        const dx = b.x - t.x;
+        const dz = b.z - t.z;
+        const tr = b.isUlt ? t.r + 0.95 : t.r + 0.25;
+        const th = b.isUlt ? t.h + 1.1 : t.h + 0.5;
+        if (Math.hypot(dx, dz) < tr && b.y < th) {
+          hitTree = true;
+          break;
+        }
+      }
+      if (hitTree) {
+        projectiles.splice(i, 1);
+        continue;
+      }
+      if (b.isUlt) {
+        const R = b.hitR || ULT_HIT_RADIUS;
+        for (let j = enemies.length - 1; j >= 0; j--) {
+          const e = enemies[j];
+          if (Math.hypot(b.x - e.x, b.y - e.y, b.z - e.z) < R) {
+            e.hp -= ULT_ENEMY_DAMAGE;
+            if (e.hp <= 0) {
+              enemies.splice(j, 1);
+              addScore(100);
+            }
+          }
+        }
+        // Радиусный урон боссу
+        if (bossSpawned && boss && boss.hp > 0 && Math.hypot(b.x - boss.x, b.y - boss.y, b.z - boss.z) < R) {
+          boss.hp -= ULT_ENEMY_DAMAGE;
+          if (boss.hp <= 0) triggerVictory();
+        }
+        hudEnemies.textContent = String(enemies.length);
+        continue;
+      }
+
+      // Урон по боссу обычной пулей
+      if (bossSpawned && boss && boss.hp > 0 && Math.hypot(b.x - boss.x, b.y - boss.y, b.z - boss.z) < BOSS_HIT_R) {
+        boss.hp -= 1;
+        projectiles.splice(i, 1);
+        if (boss.hp <= 0) triggerVictory();
+        continue;
+      }
+      for (let j = enemies.length - 1; j >= 0; j--) {
+        const e = enemies[j];
+        const d = Math.hypot(b.x - e.x, b.y - e.y, b.z - e.z);
+        if (d < 1.3) {
+          e.hp -= 1;
+          projectiles.splice(i, 1);
+          if (e.hp <= 0) {
+            enemies.splice(j, 1);
+            addScore(100);
+          }
+          hudEnemies.textContent = String(enemies.length);
+          break;
+        }
+      }
+    }
+
+    if (victorySequenceActive) {
+      render();
+      return;
+    }
+
+    const ppos = { x: px, y: py, z: pz };
+    const hpBeforeEnemyTick = hp;
+    enemies.forEach(function (e) {
+      const dx = ppos.x - e.x;
+      const dy = ppos.y - e.y;
+      const dz = ppos.z - e.z;
+      const d = Math.hypot(dx, dy, dz) || 1;
+      const sp = e.speed;
+      e.x += (dx / d) * sp * dt;
+      e.y += (dy / d) * sp * dt * 0.35;
+      e.z += (dz / d) * sp * dt;
+      let dx2 = ppos.x - e.x;
+      let dz2 = ppos.z - e.z;
+      let dh = Math.hypot(dx2, dz2);
+      if (dh < MIN_ENEMY_DIST && dh > 1e-4) {
+        const nx = dx2 / dh;
+        const nz = dz2 / dh;
+        e.x = ppos.x - nx * MIN_ENEMY_DIST;
+        e.z = ppos.z - nz * MIN_ENEMY_DIST;
+      }
+      const d3 = Math.hypot(e.x - ppos.x, e.y - ppos.y, e.z - ppos.z);
+      if (d3 < ENEMY_DMG_RANGE) {
+        hp -= 22 * dt;
+        hudHp.textContent = String(Math.max(0, Math.round(hp)));
+      }
+    });
+
+    if (hp < hpBeforeEnemyTick) {
+      medkitDamageSpawnT = MEDKIT_AFTER_DAMAGE_DELAY;
+    }
+
+    spawnT -= dt;
+    if (spawnT <= 0 && enemies.length < 16 && !(boss && boss.hp > 0)) {
+      spawnEnemy();
+      spawnT = 2.2 + Math.random() * 2;
+    }
+
+    if (hp <= 0 && !gameOver) {
+      gameOver = true;
+      document.exitPointerLock();
+      showStoryScreen('Игра окончена', 'Нажми, чтобы начать заново.', 'Заново');
+    }
+
+    render();
+  }
+  initWorld();
+  requestAnimationFrame(tick);
+
+  document.addEventListener('keydown', function (e) {
+    if (keyBindingAction) {
+      if (e.code === 'Escape') {
+        keyBindingAction = null;
+        keybindButtons.forEach(function (b) { b.classList.remove('waiting'); });
+        syncKeybindButtons();
+        e.preventDefault();
+        return;
+      }
+      keyBinds[keyBindingAction] = e.code;
+      saveKeyBinds();
+      keyBindingAction = null;
+      keybindButtons.forEach(function (b) { b.classList.remove('waiting'); });
+      syncKeybindButtons();
+      e.preventDefault();
+      return;
+    }
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      if (e.repeat) return;
+      if (!overlay.classList.contains('hidden')) return;
+      const now = performance.now();
+      if (now - escapePressLock < 220) return;
+      escapePressLock = now;
+      if (!paused) {
+        pauseGame();
+        return;
+      }
+      if (!pauseSettings.classList.contains('hidden')) {
+        showPauseMainPanel();
+        return;
+      }
+      resumeGame();
+      return;
+    }
+    keys[e.code] = true;
+    if (e.code === keyBinds.boost && !e.repeat) {
+      tryActivateBoost();
+      e.preventDefault();
+    }
+    if (e.code === keyBinds.ult && !e.repeat) {
+      tryFireUlt();
+      e.preventDefault();
+    }
+    if (e.code === keyBinds.up) e.preventDefault();
+  });
+  document.addEventListener('keyup', function (e) {
+    keys[e.code] = false;
+  });
+  window.addEventListener('mousedown', function (e) {
+    if (e.button === 0) mouseLeft = true;
+  });
+  window.addEventListener('mouseup', function (e) {
+    if (e.button === 0) mouseLeft = false;
+  });
+  canvas.addEventListener('mousemove', function (e) {
+    if (document.pointerLockElement !== canvas) return;
+    const sens = MOUSE_BASE * mouseSensitivity;
+    yaw += e.movementX * sens;
+    pitch -= e.movementY * sens;
+    pitch = Math.max(-0.55, Math.min(0.7, pitch));
+  });
+  canvas.addEventListener('mousedown', function (e) {
+    if (e.button === 0 && overlay.classList.contains('hidden') && document.pointerLockElement !== canvas) {
+      canvas.requestPointerLock();
+    }
+  });
+
+  resumeBtn.addEventListener('click', function () {
+    resumeGame();
+  });
+
+  openSettingsBtn.addEventListener('click', function () {
+    showPauseSettingsPanel();
+  });
+
+  backFromSettings.addEventListener('click', function () {
+    if (!overlay.classList.contains('hidden')) {
+      // Если это настройки до старта, просто закрываем оверлей настроек.
+      pauseOverlay.classList.add('hidden');
+      return;
+    }
+    showPauseMainPanel();
+  });
+
+  startContinueBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    showStoryScreen(
+      'Летающий поросёнок',
+      'Ты, маленькая свинка, ищущая приключения, но наткнулась на волшебный лес, где начали появляться другие свинки, которые захотели тебя атаковать и принести их Богу.',
+      'Нажми для старта'
+    );
+  });
+
+  startSettingsBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    pauseOverlay.classList.remove('hidden');
+    showPauseSettingsPanel();
+  });
+
+  victoryContinueBtn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    resetToMainMenu();
+  });
+
+  sensSlider.addEventListener('input', function () {
+    mouseSensitivity = Math.min(10, Math.max(0.1, parseFloat(sensSlider.value) || 1));
+    sensVal.textContent = String(Math.round(mouseSensitivity * 10) / 10);
+    try {
+      localStorage.setItem('pigMouseSens', String(mouseSensitivity));
+    } catch (err) {}
+  });
+
+  crosshairToggle.addEventListener('change', function () {
+    showCrosshair = crosshairToggle.checked;
+    try {
+      localStorage.setItem('pigShowCrosshair', showCrosshair ? '1' : '0');
+    } catch (err) {}
+  });
+
+  keybindButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      keybindButtons.forEach(function (b) { b.classList.remove('waiting'); });
+      const a = btn.getAttribute('data-kb');
+      if (!a) return;
+      keyBindingAction = a;
+      btn.classList.add('waiting');
+      btn.textContent = '… клавиша';
+    });
+  });
+
+  syncSensUi();
+  syncKeybindButtons();
+
+  overlay.addEventListener('click', function () {
+    // Настройки всегда сверху, поэтому клик по оверлею не должен начинать игру.
+    if (!pauseOverlay.classList.contains('hidden')) return;
+    // До показа текста истории запуск не выполняем.
+    if (storyScreen.classList.contains('hidden') && !gameOver) return;
+    if (gameOver) {
+      gameOver = false;
+      victorySequenceActive = false;
+      inBossArena = false;
+      portalJustTeleportedT = 0;
+      bossSpawned = false;
+      boss = null;
+      bossProjectiles.length = 0;
+      victoryScreen.classList.add('hidden');
+      eclipseT = 0;
+      bossExplosionT = 0;
+      paused = false;
+      hp = 100;
+      hudHp.textContent = '100';
+      score = 0;
+      hudScore.textContent = '0';
+      hudEnemies.textContent = '0';
+      enemies.length = 0;
+      medkits.length = 0;
+      projectiles.length = 0;
+      initWorld();
+      px = 0; py = 8; pz = 0;
+      vx = vy = vz = 0;
+      yaw = 0; pitch = 0;
+      spawnT = 0;
+      boostActiveT = 0;
+      boostCd = 0;
+      ultCd = 0;
+      medkitDamageSpawnT = 0;
+      hudAlt.textContent = '8';
+      hudBoost.textContent = 'готово (' + keyCodeToLabel(keyBinds.boost) + ')';
+      hudUlt.textContent = 'готово (' + keyCodeToLabel(keyBinds.ult) + ')';
+    }
+    overlay.classList.add('hidden');
+    pauseOverlay.classList.add('hidden');
+    paused = false;
+    canvas.requestPointerLock();
+  });
+})();
+  </script>
+</body>
+</html>
